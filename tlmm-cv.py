@@ -82,7 +82,7 @@ class TLMovieMaker:
     tlMovies = []
     movieFolder = "."
     speedup = 60
-    leastImages = 0
+    leastImages = 1
     moviesRelPath = ""
     fileGlob = ""
     fileList = []
@@ -100,7 +100,7 @@ class TLMovieMaker:
         pass
     
     def __str__(self):
-        return "{}: Movies:{}  SpeedUp:{} DaySliceLength:{} fileList:{} motion:{}".format(type(self).__name__,len(self.tlMovies),self.speedup,self.daySliceLength,len(self.fileList),self.motion)
+        return "{}: Movies:{}  SpeedUp:{} DaySliceLength:{} file_list:{} motion:{}".format(type(self).__name__,len(self.tlMovies),self.speedup,self.daySliceLength,len(self.fileList),self.motion)
     
     def ls(self):
         s = ""         
@@ -150,7 +150,7 @@ class TLMovieMaker:
     def senseMotion(self):
         if self.verbose: print("Sensing motion in {} movies".format(len(self.tlMovies)))
         for tlm in self.tlMovies:
-            tlm.senseMotion()
+            tlm.sense_motion()
     
     
     def fileListFromGlob(self, fileGlob):
@@ -186,7 +186,7 @@ class TLMovieMakerHour(TLMovieMaker):
 #
 class TLMovieMakerDay(TLMovieMaker):
     def __str__(self):
-        return "{}: Movies:{}  SpeedUp:{} fileList:{} range={} to {} daySliceLength:{} leastImages:{} motion:{}".format(type(self).__name__,len(self.tlMovies),self.speedup,len(self.fileList),self.dayStartTime,self.dayEndTime,self.daySliceLength,self.leastImages,self.motion)
+        return "{}: Movies:{}  SpeedUp:{} file_list:{} range={} to {} day_slice_length:{} leastImages:{} motion:{}".format(type(self).__name__,len(self.tlMovies),self.speedup,len(self.fileList),self.dayStartTime,self.dayEndTime,self.daySliceLength,self.leastImages,self.motion)
         
     def ls(self):
         s=""
@@ -240,7 +240,7 @@ class TLMovieMakerDayhour(TLMovieMakerDay):
         TLMovieMaker.loadMovies(self)
             
         groupedByDay = self.groupByDay(self.tlFiles)
-    #    dailyTimeDelta = (datetime.datetime.combine(datetime.date.today(),self.dayEndTime) - (datetime.date.today() + self.daySliceLength)) / (len(groupedByDay)-1)
+    #    dailyTimeDelta = (datetime.datetime.combine(datetime.date.today(),self.day_end_time) - (datetime.date.today() + self.day_slice_length)) / (len(groupedByDay)-1)
         # work out minutesPerDay to be continuous
         if self.daySliceLength == None:
             self.daySliceLength = (nptime.nptime.from_time(self.dayEndTime) - nptime.nptime.from_time(self.dayStartTime))   / len(groupedByDay)
@@ -254,8 +254,8 @@ class TLMovieMakerDayhour(TLMovieMakerDay):
         #        sortedGroupByDay = sorted(groupedByDay.items(), key=lambda (k,v): k)
         
         for day in sorted(groupedByDay.keys()):
-            #dayTLFiles =  self.tlFiles[day]
-            #endTime = startTime + self.daySliceLength
+            #dayTLFiles =  self.tl_files[day]
+            #endTime = startTime + self.day_slice_length
             endDateTime = startDateTime + self.daySliceLength            
             dayTLFiles = self.filterByHour(groupedByDay[day],startDateTime,endDateTime)
             if (self.verbose):
@@ -402,7 +402,7 @@ class TLMovie:
                 print("Sensing motion for TLFile: %s with prev=%s next=%s" % (item, prev, nextitem))
             if prev is not None:
                 if item.durationReal < self.motionTimeDeltaMax:
-                    item.senseMotion(prev)
+                    item.sense_motion(prev)
                 else:
                     pass
                     # mark as "keep" as it is the start of new item period
@@ -427,7 +427,7 @@ class TLMovie:
         showMotionPlots = False
         if showMotionPlots:
             mathutil.plot1d([motionList95,mathutil.smoothList(motionList,motionList95,degree=fts),mathutil.smoothListGaussian(motionList95,degree=fts),mathutil.smoothListTriangle(motionList95,degree=fts),mathutil.smoothListTriangle(motionList95,degree=fts)])
-        # Set back smoothes values to tlFiles
+        # Set back smoothes values to tl_files
         motionTotal =0
         motionThreshold = 0.00015
         for i,motion in enumerate(mathutil.smoothListGaussian(motionList95,degree=fts)):
@@ -448,7 +448,6 @@ class TLMovie:
 
         print ("Detected smoothed motion in {} of {}".format(len(self.tlFiles),preMotionFilterNFiles ))
 
-    
     def write(self):
         if len(self.tlFiles)<self.leastImages:
             if self.verbose: print ("Skipping {} as only got {} images".format(self.movieBasename(),len(self.tlFiles)))
@@ -564,7 +563,7 @@ class TLFile:
             
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Make timelapse movies")
-    parser.add_argument("fileGlob",nargs='+')
+    parser.add_argument("file_glob",nargs='+')
     parser.add_argument("--verbose",action='store_true',default=False)
     parser.add_argument("--dryrun",action='store_true',default=False)
     parser.add_argument("--moviesRelPath", default="", type=str)
@@ -585,7 +584,7 @@ if __name__ == "__main__":
     mm.moviesRelPath = args.moviesRelPath
     mm.suffix = args.suffix
     mm.verbose = args.verbose
-    mm.fileListFromGlob(args.fileGlob)
+    mm.files_from_glob(args.fileGlob)
     mm.speedup = args.speedup
     mm.dayStartTime = datetime.datetime.strptime(args.daystarttime,"%H:%M").time()
     mm.dayEndTime = datetime.datetime.strptime(args.dayendtime,"%H:%M").time()
@@ -602,7 +601,7 @@ if __name__ == "__main__":
     mm.loadMovies()
     
     if mm.motion:
-        mm.senseMotion()
+        mm.sense_motion()
     if mm.verbose:
         print("Loaded movies {}".format(mm))
     #    [print(m) for m in  mm.tlMovies]
