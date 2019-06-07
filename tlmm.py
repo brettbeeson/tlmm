@@ -90,6 +90,15 @@ def exif_datetime_taken(filename):  # -> datetime.datetime:
     return datetime.strptime(
         str(datetime_taken_exif_str), r'%Y:%m:%d %H:%M:%S')
 
+# Assume filenames are number equal to epoch seconds
+# Last restore
+def epoch_datetime_taken(filename): # -> datetime.dateime
+    seconds_from_epoch_str=""
+    for c in os.path.basename(filename):
+        if c.isdigit():
+            seconds_from_epoch_str = seconds_from_epoch_str + c
+    seconds_from_epoch = int(seconds_from_epoch_str)
+    return datetime.fromtimestamp(seconds_from_epoch)
 
 #
 # Return a datetime. Ignores non-digits.
@@ -154,10 +163,10 @@ class VSyncType(Enum):
 
 
 class SliceType(Enum):
-    day = 1
-    hour = 2
-    dayhour = 3
-    concat = 4
+    Day = 1
+    Hour = 2
+    DayHour = 3
+    Concat = 4
 
     @staticmethod
     def fromStr(name):
@@ -170,7 +179,6 @@ class SliceType(Enum):
 
 
 class VideoMaker:
-
     def __init__(self):
         self.tl_videos = []
         self.speedup = 60
@@ -194,7 +202,7 @@ class VideoMaker:
                                                                                                     len(self.file_list))
 
     def configure(self, args):
-        self.files_from_glob(args.fileGlob)
+        self.files_from_glob(args.file_glob)
         self.day_start_time = datetime.strptime(
             args.daystarttime, "%H:%M").time()
         self.day_end_time = datetime.strptime(args.dayendtime, "%H:%M").time()
@@ -222,10 +230,14 @@ class VideoMaker:
             # to millisecond resolution and/or round
             try:
                 try:
+                    # Filename date
                     datetime_taken = filename_datetime(fn)
                 except ValueError as e:
                     # Try to get EXIF
-                    datetime_taken = exif_datetime_taken(fn)
+                    try:
+                        datetime_taken = exif_datetime_taken(fn)
+                    except KeyError as e:
+                        datetime_taken = epoch_datetime_taken(fn)
 
                 tlf = TLFile(fn, datetime_taken)
                 self.tl_files.append(tlf)
@@ -265,7 +277,9 @@ class VideoMaker:
             m.write_video(vsync=vsync, fps=fps, speedup=speedup,
                           suffix=suffix, m_interpolate=m_interpolate,
                           dry_run=dry_run, force=force, )
-        # m.cleanup()
+
+        if not logger.isEnabledFor(logging.DEBUG):
+            m.cleanup()
 
     def delete_images(self):
         n = 0
@@ -293,17 +307,16 @@ class VideoMaker:
         return n
 
 
-class VideoCombined(VideoMaker):
+class VideoMakerConcat(VideoMaker):
     def load_videos(self):
         VideoMaker.load_videos(self)
-        self.tl_videos.append(
-            TLVideo(self.tl_files, self.speedup, fps_requested=self.fps_requested))
+        self.tl_videos.append(TLVideo(self.tl_files))
 
 
 #
 # Make one video per hour
 #
-class VideosHourly(VideoMaker):
+class VideoMakerHour(VideoMaker):
     def __str__(self):
         return "{}: videos:{}  SpeedUp:{} file_list:{} range={} to {} motion:{}".format(
             type(self).__name__, len(
@@ -329,7 +342,7 @@ class VideosHourly(VideoMaker):
         # remove out-of-time hours
         for h in groupedByTimeTLFiles:
 
-            logger.debug("VideosHourly: Loading video for {} with {} files from {} total files ".format(h, len(
+            logger.debug("VideoMakerHourly: Loading video for {} with {} files from {} total files ".format(h, len(
                 groupedByTimeTLFiles[h]), len(self.tl_files)))
 
             tlm = TLVideo(groupedByTimeTLFiles[h])
@@ -358,9 +371,9 @@ class VideosHourly(VideoMaker):
         return grouped_tl_files
 
 
-class VideosDaily(VideoMaker):
+class VideoMakerDay(VideoMaker):
     def __str__(self):
-        return "{}: videos:{}  file_list:{} range={} to {} day_slice_length:{} motion:{}".format(
+        return "{}: videos:{} file_list:{} range:{} to {} day_slice_length:{} motion:{}".format(
             type(self).__name__, len(
                 self.tl_videos), len(
                 self.file_list), self.day_start_time,
@@ -421,7 +434,7 @@ class VideosDaily(VideoMaker):
         return grouped_tl_files
 
 
-class VideoDayHour(VideosDaily):
+class VideoDayHour(VideoMakerDay):
     def load_videos(self):
         sliced_tl_files = []
         VideoMaker.load_videos(self)
@@ -464,11 +477,11 @@ class TLVideo:
 
     def __init__(self, tl_files):
         self.tl_files = tl_files
-        self.written = False
+        self.wrote_to_video_filename = None
         self.calc_gaps()
 
     def __str__(self):
-        return "TLVideo: filename={} frames={} spfReal={:.1f}".format(
+        return "TLVideo: filename:{} frames:{} spfReal:{:.1f}".format(
             self.default_video_filename(), len(self.tl_files), self.spf_real_avg())
 
     def ls(self):
@@ -478,26 +491,25 @@ class TLVideo:
         return s
 
     def cleanup(self):
-        try:
-            os.unlink(self.list_filename())
-        except BaseException:
-            pass
+        if self.wrote_to_video_filename:
+            try:
+                os.unlink(os.path.basename(self.wrote_to_video_filename) + ".images")
+                os.unlink(os.path.basename(self.wrote_to_video_filename) + ".ffmpeg")
+            except BaseException:
+                pass
 
     # Uses self.TLFiles as a source of images to construct a NEW self.TLFiles with just enough images to achieve videoFPS
     # Only required for VFR, as when using CFR, ffmpeg will drop frames as
     # required
     def selectTLFilesToSuitMaxFPS(self, speedup, fps_upper_bound):
         raise NotImplemented("To check")
-        logger.debug(
-            "selectTLFilesToSuitMaxFPS: realStart: %s realEnd: %s " % (self.first(), self.last()))
-        logger.debug("selectTLFilesToSuitMaxFPS: realDuration = %s files = %d" % (
-            self.last() - self.first(), len(self.tl_files)))
+        logger.debug("realStart:%s realEnd:%s " % (self.first(), self.last()))
+        logger.debug("realDuration:%s files:%d" % (self.last() - self.first(), len(self.tl_files)))
         frameTime = self.first()
         spfVideoToSet = 1 / fps_upper_bound
         spfRealToSet = spfVideoToSet * speedup
         newTLFiles = []
-        # Run through real time, stepping per-frame-to-be and find the nearest
-        # frame in time to use
+        # Run through real time, stepping per-frame-to-be and find the nearest frame in time to use
         while frameTime < self.last():
             frameTime += datetime.timedelta(seconds=spfRealToSet)
             tlf = min(
@@ -512,7 +524,7 @@ class TLVideo:
         self.tl_files = newTLFiles
 
         dv = self.durationVideo()
-        logger.info("selectTLFilesToSuitMaxFPS: fps_upper_bound=%f fps_max= %f duration = %s files = %d" % (
+        logger.info("fps_upper_bound:%f fps_max:%f duration:%s files:%d" % (
             fps_upper_bound, self.fps_video_max(), self.last() - self.first(), len(newTLFiles)))
 
     # Set duration_real for each frame. This is the time difference between this and the next's frame timeTaken
@@ -596,10 +608,10 @@ class TLVideo:
 
     def write_video(self, force=False, vsync="cfr-even", video_filename=None, suffix="", m_interpolate=False,
                     dry_run=False, fps=None, speedup=None):
-        logger.info("TLVideo.writing: {}".format(self))
+
         if len(self.tl_files) < 1:
             logger.warn("No images to write")
-            return
+            return False
         if not video_filename:
             video_filename = self.default_video_filename(suffix)
         if not force and os.path.isfile(video_filename):
@@ -619,7 +631,7 @@ class TLVideo:
             list_filename = self.write_images_list_cfr(video_filename)
             if fps:
                 # use this fps value. calc speedup for reporting only
-                speedup = self.duration_real() / len(self.tl_files) * fps
+                speedup = self.duration_real().total_seconds() / len(self.tl_files) * fps
                 pass
             elif speedup:
                 fps = self.fps_video_avg(speedup)
@@ -627,22 +639,25 @@ class TLVideo:
                 raise RuntimeError("Specify cfr-even with fps *or* speedup")
             input_parameters = ["-r", str(round(fps, 0))]
         elif vsync == 'cfr-padded':
+            raise NotImplementedError()
             # use a constant framerate, but pad 'slow' sections to reproduce original intervals
             # use max framerate for fastest section, pad other bits
             vsync = 'cfr'
             list_filename = self.write_images_list_vfr(video_filename, speedup)
             fps = self.fps_video_max(speedup)
             # set the input-frame-rate (images) and output-frame-rate (video) to be the same
-            # other defaults to 25 (?)
+            # otherwise defaults to 25 (?)
             # input_parameters = ["-r", str(round(fps,0))]
             input_parameters = []
         else:
             raise KeyError("Unknown type of vsync: {}".format(vsync))
+        logger.info("TLVideo.writing:{} speedup:{} fps_video:{} mspf_real/speedup:{:.0f}".format(
+            self, speedup, fps, 0 if speedup is None else 1000 * self.spf_real_avg() / speedup))
 
         dfs = max(5, int(fps / 2.0))  # deflicker size. smooth across 0.5s
 
-# filter to add 2 seconds to end
-#   tpad=stop_mode=clone:stop_duration=2,
+        # filter to add 2 seconds to end
+        # tpad=stop_mode=clone:stop_duration=2,
         if m_interpolate:
             output_parameters = ["-vf", "deflicker" + "," + "minterpolate"]
             fps *= 2
@@ -671,12 +686,12 @@ class TLVideo:
                 stderr=subprocess.STDOUT)
 
         if r == 0:
-            self.written = True
-            logger.info("Wrote {} images to {}. fps = {} speedup = {}\n ".format(len(self.tl_files), video_filename, fps,
+            self.wrote_to_video_filename = video_filename
+            logger.info("Wrote {} images to {}. fps:{} speedup:{}\n ".format(len(self.tl_files), video_filename, fps,
                                                                                  speedup))
             return True
         else:
-            self.written = False
+            self.wrote_to_video_filename = None
             logger.error(
                 "Failed on writing {} images to {}.\n Call:{}\n Return:{}".format(len(self.tl_files), video_filename,
                                                                                   str(the_call), r))
@@ -799,22 +814,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--slicetype",
         choices=SliceType.names(),
-        default="day")
+        default="Concat")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--fps", default=30, type=int,
+    group.add_argument("--fps", default=25, type=int,
                        help="Mux images at this Frames Per Second. (Implies --vsync cfr).")
     group.add_argument(
         "--speedup",
-        default=300,
+        default=None,
         type=int,
         help="Using timestamps, speed up video by this much")
     parser.add_argument("--ignorepartial", action='store_true', default=False,
                         help="Ignore videos without full time range (e.g. 14:00 to 14:59 for hourly")
     parser.add_argument("--deleteimages", action='store_true', default=False,
                         help="After successful video creation, delete the images")
-    parser.add_argument("--fpsmax", default=None, type=int,
-                        help="Drop frames to meet this fps")
-    parser.add_argument("--vsync", default="cfr", choices=['cfr-even', 'cfr-padded', 'vfr'], type=str,
+    #parser.add_argument("--fpsmax", default=None, type=int,
+    #                    help="Drop frames to meet this fps")
+    parser.add_argument("--vsync", default="cfr-even", choices=['cfr-even', 'cfr-padded', 'vfr'], type=str,
                         help="cfr-even uses start and end time, and makes frames are equally spaced. cfr-padded uses maximum framerate and pads slow bits. vfr uses exact time of each frame (less robust)")
     parser.add_argument("--daystarttime", default="00:00", type=str)
     parser.add_argument("--dayendtime", default="23:59", type=str)
@@ -839,7 +854,7 @@ if __name__ == "__main__":
     if args.command == "video":
         if mm.motion:
             mm.sense_motion()
-        mm.write_videos(suffix=args.suffix, vsync=args.vsync, force=args.force, m_interpolate=args.minterpolate,
+        mm.write_videos(suffix=args.suffix, speedup=args.speedup,vsync=args.vsync, fps=args.fps,force=args.force, m_interpolate=args.minterpolate,
                         dry_run=args.dryrun)
     elif args.command == "rename":
         mm.rename_images()

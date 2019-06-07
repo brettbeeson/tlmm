@@ -5,7 +5,7 @@ import os
 import unittest
 import datetime
 import tlmm
-from tlmm import VideoCombined, VideosDaily, VideosDaily
+from tlmm import VideoMakerCombined, VideoMakerDaily, VideoMakerDaily
 import warnings
 import shutil
 import logging
@@ -28,7 +28,7 @@ class Test(unittest.TestCase):
 
     def test_vsync_cont(self):
 
-        mm = VideosDaily()
+        mm = VideoMakerDaily()
         logging.info("DISCONTINUOUS SET | CFR-PADDED")
         mm.files_from_glob(["discont-stamped/*.jpg"])  # 228 files
         mm.load_videos()
@@ -56,7 +56,7 @@ class Test(unittest.TestCase):
         self.assertEqual(228, f, "Got {} frames instead of expected 404".format(f))
 
         logging.info("CONTINUOUS SET | CFR")
-        mm = VideosDaily()
+        mm = VideoMakerDaily()
         mm.files_from_glob(["cont-stamped/*.jpg"])
         mm.load_videos()
         mm.write_videos(
@@ -89,7 +89,7 @@ def test_rename(self):
         print (e)
         pass
     shutil.copytree("rename", "temp-renamed")
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.files_from_glob(["temp-renamed/*.JPG"])
     mm.loadvideos()
     mm.rename_images()
@@ -126,14 +126,14 @@ def test_Stamp(self):
         print (e)
         pass
     shutil.copytree("tostamp", "temp-stamped")
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.files_from_glob(["temp-stamped/*.jpg"])
     mm.loadvideos()
     mm.stamp_images()
 
 
 def test_FPS(self):
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.cache = False
     mm.leastImages = 0
     mm.files_from_glob([r"3\*.jpg"])
@@ -148,7 +148,7 @@ def test_FPS(self):
 
 
 def testConcat1(self):
-    mm = VideoCombined()
+    mm = VideoMakerCombined()
     mm.cache = False
     mm.files_from_glob(["*.jpg"])
     mm.loadvideos()
@@ -159,7 +159,7 @@ def testConcat1(self):
 
 
 def testConcat2(self):
-    mm = VideoCombined()
+    mm = VideoMakerCombined()
     mm.files_from_glob([r"**\*.jpg"])
     mm.cache = False
     mm.loadvideos()
@@ -171,7 +171,7 @@ def testConcat2(self):
 
 
 def testDayMaker(self):
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.cache = False
     mm.files_from_glob([r"**\*.jpg"])
     mm.loadvideos()
@@ -182,7 +182,7 @@ def testDayMaker(self):
 
 
 def testDayHourMaker(self):
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.files_from_glob([r"**\*.jpg"])
     mm.cache = False
     #mm.day_start_time = datetime.time(8)
@@ -213,7 +213,7 @@ def testDayHourMaker(self):
 
 
 def testMotion(self):
-    mm = VideosDaily()
+    mm = VideoMakerDaily()
     mm.cache = False
     mm.motion = True
     mm.verbose = True
