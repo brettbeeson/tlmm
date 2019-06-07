@@ -15,6 +15,7 @@ Various options to speedup, drop frames, etc.
 ## Install dependancies on EC2
 
 >python get-pip.py
+
 >pip install exifread
 >pip install nptime
 >pip install numpy
