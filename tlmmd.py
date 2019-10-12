@@ -1,40 +1,14 @@
 #!/usr/bin/env python
-
-# Model Details
-# -------------
-# TLVideos are collections of TLFiles. Each TLFile is a photo with a timestamp and duration.
-# Duration is the timedelta to the next frame.
+# NOT DEVELOPED YET. USING TLMM.PY INSTEAD
 #
-# _real suffix is the original images, in real time
-# _video suffix is the ... video.
+# tlmmd: Daemon to continous process images into movies
 #
-# Each video has the following constant values
-# - duration_real : end-start frame
-# - n_frames : number of frames
-# - fps_real_avg : duration_real / n_frames
-# - fps_real_max :  1/min(frame_duration)
-#
-# fps_real_avg is the average. The maximum (fps_real_max) could be higher, as frame intervals can
-# be non-homogenous. Imagine photo intervals:
-# +    +    +    ++++++    +    +    +    +
-# The maximum will be within the +++++, while the average will be +   + (i.e. slightly smaller than typical internal)
-#
-# Each video has a speedup factor set. This determines the fps_video. This encompasses VFR and CFR video speedup.
-# - speedup = length_real / length_video
-#           = duration_real * fps_video / nframes
-#
-# VFR: This is a "compressed" version of the real.
-#              : Determined by duration of frames / speedup factor.
-#              : fps_video = varies
-#
-# CFR: This is an idealised version of the real.
-# - CFR-EVEN: each frame duration = duration_video / nframes
-#             : this evenly spaces frames
-#             : fps_video (avg) = speedup * duration_real / n_frames
-# - CFR-PADDED    : runs at the maximum frame rate, and pads 'slower' areas with frames
-#             : fps_video (max) = speedup * fps_real_max = speedup * 1/min[frame_duration]
-#
-#
+# - Monitors one directory for files
+# - Maintains a sorted list of files' time-taken (via filename or EXIF)
+# - Take an "interval" argument (Hour or Day)
+# - When the latest file time > last interval boundary:
+# ---- Run tlmm.py on batches of files (within intervals) and delete images
+# ---- Optionally: join movies together to get a "everything to date" or "everything today" movie
 
 from __future__ import division
 import tempfile

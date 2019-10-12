@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
-# Model Details
-# -------------
+
+# Module "tl" (Time Lapse)  Details
+# -------------------------------
 # TLVideos are collections of TLFiles. Each TLFile is a photo with a timestamp and duration.
 # Duration is the timedelta to the next frame.
 #
@@ -65,14 +66,15 @@ from ascii_graph import Pyasciigraph    # graph command
 
 from collections import OrderedDict
 
-_LOG_LEVEL_STRINGS = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
-
 logger = logging.getLogger(__name__)
 
-def _log_level_string_to_int(log_level_string):
-    if not log_level_string in _LOG_LEVEL_STRINGS:
+LOG_LEVEL_STRINGS = ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
+
+def log_level_string_to_int(log_level_string):
+
+    if not log_level_string in LOG_LEVEL_STRINGS:
         message = 'invalid choice: {0} (choose from {1})'.format(
-            log_level_string, _LOG_LEVEL_STRINGS)
+            log_level_string, LOG_LEVEL_STRINGS)
         raise argparse.ArgumentTypeError(message)
 
     log_level_int = getattr(logging, log_level_string, logging.INFO)
@@ -82,6 +84,38 @@ def _log_level_string_to_int(log_level_string):
 
     return log_level_int
 
+def fps(input_filename):
+    cl = "ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate" + " " + input_filename
+    # will be 25/1 or 223/1
+    output = process_output(cl)
+    nom, dom = output.split("/")
+    return float(nom) / float(dom)
+
+
+def valid_video(input_filename):
+    try:
+        return frames(input_filename)>0
+    except OSError as e:
+        return False
+
+def frames(input_filename):
+    cl = "ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames -of default=nokey=1:noprint_wrappers=1 " + str(input_filename)
+    return int(process_output(cl))
+
+def process_output(cl):
+    try:
+        proc = subprocess.run(cl.split(" "), encoding="UTF-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError as e:
+        raise OSError("Subprocess failed to run. Command: '" + cl + "' Exception: " + str(e))
+
+    #logger.debug("Command: '" + cl + "' Code: " + str(
+    #    proc.returncode) + " Stdout: " + proc.stdout + " Stderr: " + proc.stderr)
+
+    if proc.returncode == 0:
+        return str(proc.stdout)
+    else:
+        raise OSError("Subprocess ran but failed. Command: '" + cl + "' Code: " + str(
+            proc.returncode) + " Stdout: " + proc.stdout + " Stderr: " + proc.stderr )
 
 def round_time_down(dt=None, round_to=60):
     if dt is None:
@@ -89,7 +123,6 @@ def round_time_down(dt=None, round_to=60):
     seconds = (dt - dt.min).seconds
     rounding = (seconds) // round_to * round_to #
     return dt + timedelta(0,rounding-seconds,-dt.microsecond)
-
 
 # Get datetime from EXIF
 def exif_datetime_taken(filename):  # -> datetime.datetime:
@@ -110,17 +143,39 @@ def epoch_datetime_taken(filename): # -> datetime.dateime
     seconds_from_epoch = int(seconds_from_epoch_str)
     return datetime.fromtimestamp(seconds_from_epoch)
 
+
 #
 # Return a datetime. Ignores non-digits.
+# If no time is available, use 00:00:00
 # length: 14 = 4,2,2,2,2,2
 #
-def filename_datetime(filename, pattern="%Y%m%d%H%M%S", length=14):
+def filename_datetime(filename, throw = True):
+    datetime_pattern = "%Y%m%d%H%M%S"
+    datetime_length = 14
+    date_pattern = "%Y%m%d"
+    date_length = 8
     datetime_digits = ''
+    date_digits = ''
+
     for c in os.path.basename(filename):
         if c.isdigit():
             datetime_digits = datetime_digits + c
-    datetime_digits = datetime_digits[0:length]
-    return datetime.strptime(datetime_digits, pattern)
+    datetime_digits = datetime_digits[0:datetime_length]
+    date_digits = datetime_digits[0:date_length]
+    try:
+        file_datetime = datetime.strptime(datetime_digits, datetime_pattern)
+        return file_datetime
+    except ValueError as e:
+        try:
+            #logger.warning(e)
+            file_date_only = datetime.strptime(date_digits, date_pattern)
+            return file_date_only
+        except ValueError:
+            if throw:
+                raise
+            else:
+                return None
+
 
 
 def crop(image, top=0, bottom=0, left=0, right=0):
@@ -266,13 +321,13 @@ class VideoMaker:
 
             except Exception as e:
                 n_errors += 1
-                logger.warn("Error getting image %s: %s" % (fn, e))
+                logger.warning("Error getting image %s: %s" % (fn, e))
 
         logger.debug(
             "Got {} timelapse images from {} files with {} errors".format(len(self.tl_files), len(self.file_list),
                                                                           n_errors))
         if n_errors:
-            logger.warn(
+            logger.warning(
                 "No dates available for {}/{}. Ignoring them.".format(n_errors, len(self.file_list)))
         return self.tl_files.sort()
 
@@ -282,6 +337,10 @@ class VideoMaker:
             tlm.sense_motion()
 
     def files_from_glob(self, file_glob):
+        try:
+            basestring
+        except NameError:
+            basestring = str
         assert not isinstance(file_glob, basestring)
         self.file_list = []
         self.file_glob = file_glob
@@ -299,15 +358,20 @@ class VideoMaker:
             logger.info("Ignoring last item: {}".format(self.tl_videos[-1]))
             del(self.tl_videos[-1])
 
+
     def write_videos(self, dest = "", vsync="cfr-even", speedup=None, fps=None,
                      suffix="", force=False, m_interpolate=False, dry_run=False):
+
         for m in self.tl_videos:
-            m.write_video(dest=dest, vsync=vsync, fps=fps, speedup=speedup,
+            ret = m.write_video(dest=dest, vsync=vsync, fps=fps, speedup=speedup,
                           suffix=suffix, m_interpolate=m_interpolate,
                           dry_run=dry_run, force=force, )
 
+
         if not logger.isEnabledFor(logging.DEBUG):
             m.cleanup()
+
+
 
     def delete_images(self):
         n = 0
@@ -497,7 +561,7 @@ class VideoDayHour(VideoMakerDay):
             start += daily_time_delta
         sliced_tl_files.sort()
         self.tl_videos.append(TLVideo(sliced_tl_files, self.speedup))
-        logger.warn("Warning: calc_gaps not run at __LINE__")
+        logger.warning("Warning: calc_gaps not run at __LINE__")
         # self.calc_gaps()
 
 
@@ -665,7 +729,7 @@ class TLVideo:
                     dry_run=False, fps=None, speedup=None):
         pts_factor = 1
         if len(self.tl_files) < 1:
-            logger.warn("No images to write")
+            logger.warning("No images to write")
             return False
         if not video_filename:
             video_filename = self.default_video_filename(suffix)
@@ -725,13 +789,13 @@ class TLVideo:
         # tpad=stop_mode=clone:stop_duration=2,
         if m_interpolate:
             #output_parameters = ["-vf", "deflicker,minterpolate,setpts=PTS*"+pts_factor]
-            output_parameters = ["-vf", "deflicker,minterpolate"]
+            output_parameters = ["-vf", "deflicker,minterpolate","-preset","veryfast",]
             fps *= 2
         else:
-            output_parameters = ["-vf", "deflicker,setpts=PTS*{:.3f}".format(pts_factor)]
+            output_parameters = ["-vf", "deflicker,setpts=PTS*{:.3f}".format(pts_factor),"-preset","veryfast"]
 
         safe_filenames = "0"  # 0 = disable safe 1 = enable safe
-
+        metadata = [""] # todo
         the_call = ["ffmpeg", "-hide_banner", "-loglevel", "verbose", "-y", "-f", "concat", "-vsync", vsync, "-safe",
                     safe_filenames]  # global
         the_call.extend(input_parameters)
@@ -750,7 +814,6 @@ class TLVideo:
                 the_call,
                 stdout=plog,
                 stderr=subprocess.STDOUT)
-
         if r == 0:
             self.wrote_to_video_filename = video_filename
             logger.info("Wrote {} images to {}. fps:{} speedup:{}\n ".format(len(self.tl_files), video_filename, fps,
@@ -758,10 +821,11 @@ class TLVideo:
             return True
         else:
             self.wrote_to_video_filename = None
-            logger.error(
-                "Failed on writing {} images to {}.\n Call:{}\n Return:{}".format(len(self.tl_files), video_filename,
-                                                                                  str(the_call), r))
-            return False
+            err_msg = "Failed on writing {} images to {}.\n Call:{}\n Return:{}".format(
+                len(self.tl_files), video_filename,str(the_call), r)
+            #logger.error(err_msg)
+            raise RuntimeError(err_msg)
+
 
     def write_images_list_vfr(self, video_filename, speedup):
         f = open(os.path.basename(video_filename) + ".images", 'w')
@@ -861,99 +925,3 @@ class TLFile:
     def sense_motion(self, prevTLF):
         pass
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Make timelapse videos")
-    parser.add_argument(
-        "command",
-        choices=[
-            'video',
-            'rename',
-            'addexif',
-            'stamp',
-            'graph',
-            'rm'],
-        help="Select one of these commands")
-    parser.add_argument("file_glob", nargs='+')
-    parser.add_argument('--log-level', default='INFO', dest='log_level', type=_log_level_string_to_int, nargs='?',
-                        help='Set the logging output level. {0}'.format(_LOG_LEVEL_STRINGS))
-    parser.add_argument("--dryrun", action='store_true', default=False)
-    parser.add_argument("--stampimages", action='store_true', default=False)
-    parser.add_argument(
-        "--force",
-        action='store_true',
-        default=False,
-        help="Force overwrite of existing videos")
-    parser.add_argument(
-        "--slicetype",
-        choices=SliceType.names(),
-        default="Concat")
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--fps", default=25, type=int,
-                       help="Mux images at this Frames Per Second. (Implies --vsync cfr).")
-    group.add_argument(
-        "--speedup",
-        default=None,
-        type=int,
-        help="Using timestamps, speed up video by this much")
-    parser.add_argument("--ignorelast", action='store_true', default=False,
-                        help="Ignore the last videos which may be incomplete. Only with interval SliceTypes (Day,Hour).")
-    group2 = parser.add_mutually_exclusive_group()
-    group2.add_argument("--deleteimages", action='store_true', default=False,
-                        help="After successful video creation, delete the images")
-    group2.add_argument("--moveimages", action='store_true', default=None,
-                        help="After successful video creation, move the images to specified directory")
-    #parser.add_argument("--fpsmax", default=None, type=int,
-    #                    help="Drop frames to meet this fps")
-    parser.add_argument("--vsync", default="cfr-even", choices=['cfr-even', 'cfr-padded', 'vfr'], type=str,
-                        help="cfr-even uses start and end time, and makes frames are equally spaced. cfr-padded uses maximum framerate and pads slow bits. vfr uses exact time of each frame (less robust)")
-    parser.add_argument("--daystarttime", default="00:00", type=str)
-    parser.add_argument("--dayendtime", default="23:59", type=str)
-    parser.add_argument("--graphinterval", default=10, type=int,help="Using wih graph command. In minutes.")
-    parser.add_argument("--minutesperday", default=None, type=int,
-                        help="For hour or dayhour slice types, minutes to show per day")
-    parser.add_argument("--motion", action='store_true', default=False,
-                        help="Image selection to include only motiony images")
-    parser.add_argument("--minterpolate", action='store_true', default=False,
-                        help="FFMPEG Filter to motion-blur video to reduce jerkiness. Ya jerk.")
-    parser.add_argument("--suffix", default="", type=str)
-    parser.add_argument("--dest", default="", type=str,help="Destination folder for output. Default is cwd.")
-
-    parser.add_argument("--start", default=None, type=str, help="Date of first image")
-
-    parser.add_argument('--first', default=datetime.min, type=lambda s: datetime.strptime(s, '%Y-%m-%dT%H:%M:%S'), help="First image to consider. Format: 2010-12-01T13:00:01")
-    parser.add_argument('--last', default=datetime.max, type=lambda s: datetime.strptime(s, '%Y-%m-%dT%H:%M:%S'),
-                        help="Last image to consider. Format: 2010-12-01T13:00:01")
-
-
-
-
-    args = (parser.parse_args())
-    #print(args.first)
-    logger.setLevel(args.log_level)
-    logger.setLevel(args.log_level)
-    logging.basicConfig(format='%(levelname)s:%(message)s')
-
-    mm = str_to_class("VideoMaker" + args.slicetype.title())()
-    mm.configure(args)
-    mm.load_videos()
-
-    if args.command == "video":
-        if mm.motion:
-            mm.sense_motion()
-        mm.write_videos(dest=args.dest, suffix=args.suffix, speedup=args.speedup,vsync=args.vsync, fps=args.fps,force=args.force, m_interpolate=args.minterpolate,
-                        dry_run=args.dryrun)
-    elif args.command == "rename":
-        mm.rename_images()
-    elif args.command == "addexif":
-        raise NotImplemented()
-    elif args.command == "stamp":
-        mm.stamp_images()
-    elif args.command == "graph":
-        mm.graph_intervals(timedelta(minutes=args.graphinterval))
-    else:
-        pass
-
-    if args.deleteimages:
-        i = mm.delete_images()
-        logger.info("Deleted {} files...".format(i))

@@ -137,7 +137,7 @@ def files_from_glob(file_glob):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Make timelapse videos")
     parser.add_argument("file_glob", nargs='+')
-    parser.add_argument('--log-level', default='INFO', dest='log_level', type=_log_level_string_to_int, nargs='?',
+    parser.add_argument('--log-level', default='WARNING', dest='log_level', type=_log_level_string_to_int, nargs='?',
                         help='Set the logging output level. {0}'.format(_LOG_LEVEL_STRINGS))
     parser.add_argument("--dryrun", action='store_true', default=False)
     parser.add_argument("--move", action='store_true', default=False,

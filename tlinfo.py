@@ -14,6 +14,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "command",
         choices=[
+            'valid',
             'frames',
             'fps'],
         help="Select one of these commands")
@@ -25,6 +26,8 @@ if __name__ == "__main__":
             print(frames(args.input))
         elif args.command == "fps":
             print(fps(args.input))
+        elif args.command == "valid":
+            print(valid_video(args.input))
         else:
             pass
 
